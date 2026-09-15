@@ -1,0 +1,63 @@
+# 默认忽略所有文件，允许遍历目录以匹配下方白名单。
+*
+!*/
+
+# 仓库配置与开发入口。
+!/.gitignore
+!/.gitmodules
+!/AGENTS.md
+!/README.md
+!/LICENSE
+!/CONTRIBUTING.md
+!/.clang-format
+!/.clang-tidy
+!/CMakeLists.txt
+!/CMakePresets.json
+!/Makefile
+
+# 文档。
+!/docs/**/*.md
+
+# 硬件、模型、验证和驱动源码。
+!/hw/**/AGENTS.md
+!/hw/**/*.h
+!/hw/**/*.hpp
+!/hw/**/*.c
+!/hw/**/*.cc
+!/hw/**/*.cpp
+!/hw/**/*.sv
+!/hw/**/*.svh
+!/hw/**/*.v
+!/hw/**/*.vh
+!/hw/**/*.f
+!/sw/**/AGENTS.md
+!/sw/**/*.h
+!/sw/**/*.hpp
+!/sw/**/*.c
+!/sw/**/*.cc
+!/sw/**/*.cpp
+!/sw/**/*.s
+!/sw/**/*.S
+
+# 模块构建文件。
+!/hw/**/CMakeLists.txt
+!/hw/**/*.cmake
+!/hw/**/Makefile
+!/hw/**/*.mk
+!/sw/**/CMakeLists.txt
+!/sw/**/*.cmake
+!/sw/**/Makefile
+!/sw/**/*.mk
+
+# 第三方子模块由父仓库记录固定提交。
+!/third_party/spike/
+
+# 即使扩展名匹配白名单，生成目录与本地配置仍不纳入版本管理。
+**/build/
+**/cmake-build-*/
+**/CMakeFiles/
+**/obj_dir/
+**/.vscode/
+**/.idea/
+/logs/
+/worklog/
