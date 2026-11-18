@@ -13,6 +13,10 @@ int main(int argc, char** argv) {
             helo::verif::gpu_test();
         } else if (selector == "cp") {
             helo::verif::cp_test();
+        } else if (selector == "shader_texture") {
+            helo::verif::shader_texture_test();
+        } else if (selector == "raster_outputs") {
+            helo::verif::raster_outputs_test();
         } else if (selector == "render") {
             if (argc < 3) {
                 throw std::invalid_argument("render requires PNG output path");

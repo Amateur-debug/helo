@@ -31,16 +31,19 @@ private:
 
     void execute_packet(std::uint32_t address);
     void execute_clear(const ClearCommand& command);
+    void decode_raster_state(DrawCommand& command) const;
     void execute_render(const DrawCommand& command);
     std::size_t graphics_batch_size(const ShaderProgram& program) const;
-    void shade_vertices(const DrawCommand& command, std::vector<Vertex>& vertices);
+    void shade_vertices(
+        const DrawCommand& command, std::vector<Vertex>& vertices, const Tex::Bindings& textures);
     void process_fragments(const DrawCommand& command,
         const Rop::Target& target,
         const std::optional<Tex::Sampler>& sampler,
+        const Tex::Bindings& textures,
         std::vector<Fragment>& fragments);
     void execute_compute(const ComputeCommand& command);
     void validate_program(const ShaderProgram& program, unsigned minimum_registers) const;
-    void run_program(const ShaderProgram& program);
+    void run_program(const ShaderProgram& program, const Tex::Bindings& textures);
     Mem& m_memory; // 引用命令包和全部资源所在的统一内存。
     Geom& m_geom; // 引用GPU持有的几何模块。
     Rast& m_rast; // 引用GPU持有的光栅模块。

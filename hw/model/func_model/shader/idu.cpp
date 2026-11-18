@@ -183,12 +183,29 @@ Instr Idu::decode(std::uint64_t encoding) const {
             HELO_FUNCTION(0x11, FCVT_S_WU, FPU, RD | RS1 | FCSR | ROUNDING);
         }
         break;
+    case HELO_OPCODE_TEX:
+        if (fields.m_funct < 64) {
+            auto out = make_instruction(
+                fields, Operation::TEX_LOD, ExecutionUnit::TEX, RD | RS1 | RS2 | RS3);
+            out.m_immediate = fields.m_funct;
+            return out;
+        }
+        break;
     case HELO_OPCODE_FMA:
         switch (fields.m_funct) {
             HELO_FUNCTION(0x00, FMADD, FPU, RD | RS1 | RS2 | RS3 | FCSR | ROUNDING);
             HELO_FUNCTION(0x01, FMSUB, FPU, RD | RS1 | RS2 | RS3 | FCSR | ROUNDING);
             HELO_FUNCTION(0x02, FNMSUB, FPU, RD | RS1 | RS2 | RS3 | FCSR | ROUNDING);
             HELO_FUNCTION(0x03, FNMADD, FPU, RD | RS1 | RS2 | RS3 | FCSR | ROUNDING);
+        }
+        break;
+    case HELO_OPCODE_WORKGROUP:
+        switch (fields.m_funct) {
+            HELO_FUNCTION(0, LDS_W, LSU, RD | RS1);
+            HELO_FUNCTION(1, STS_W, LSU, RS1 | RS2);
+            HELO_FUNCTION(2, ATOM_ADD_SHARED, LSU, RD | RS1 | RS2);
+            HELO_FUNCTION(3, ATOM_ADD_GLOBAL, LSU, RD | RS1 | RS2);
+            HELO_FUNCTION(4, BARG, WCU, NONE);
         }
         break;
     case HELO_OPCODE_BRANCH:

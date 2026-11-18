@@ -12,6 +12,7 @@ static helo::Vertex vertex(float x, float y, float z = 0, float w = 1) {
     result.m_position = {x, y, z, w};
     result.m_color = {x, y, z, 1};
     result.m_uv = {x, y};
+    result.m_varyings[15] = 2 * x - y + z;
     return result;
 }
 
@@ -76,6 +77,9 @@ void geom_test() {
             if (axis < 2) {
                 triangle[2].m_uv[axis] = sign * 2;
             }
+            for (auto& v : triangle) {
+                v.m_varyings[15] = 2 * v.m_position[0] - v.m_position[1] + v.m_position[2];
+            }
             const auto clipped = dut->clip(triangle);
             graphics_check(clipped.size() == 2, "single outside vertex creates quadrilateral");
             bool touched_plane = false;
@@ -85,6 +89,9 @@ void geom_test() {
                         graphics_check(std::abs(v.m_position[a]) <= v.m_position[3] + 1e-5f,
                             "all clip planes satisfied");
                     }
+                    graphics_near(v.m_varyings[15],
+                        2 * v.m_position[0] - v.m_position[1] + v.m_position[2],
+                        "clip interpolates custom varying on all planes");
                     graphics_near(v.m_color[axis], v.m_position[axis], "clip interpolates color");
                     if (axis < 2) {
                         graphics_near(v.m_uv[axis], v.m_position[axis], "clip interpolates UV");

@@ -16,8 +16,10 @@ struct TriangleSetup {
 // 建立裁剪至目标范围的光栅化参数。
 class Setup {
 public:
-    std::optional<TriangleSetup> prepare(
-        const ScreenTriangle& triangle, std::uint32_t width, std::uint32_t height) const;
+    std::optional<TriangleSetup> prepare(const ScreenTriangle& triangle,
+        std::uint32_t width,
+        std::uint32_t height,
+        unsigned samples = 1) const;
     double edge(const ScreenVertex& a, const ScreenVertex& b, double x, double y) const;
     bool top_left(const ScreenVertex& a, const ScreenVertex& b) const;
 };

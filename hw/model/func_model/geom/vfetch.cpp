@@ -1,5 +1,6 @@
 #include "vfetch.h"
 #include "mem/mem.h"
+#include <algorithm>
 #include <cstring>
 #include <stdexcept>
 
@@ -39,22 +40,61 @@ float read_float(const Mem& memory, std::uint32_t address) {
 Vfetch::Vfetch(const Mem& memory) : m_memory(memory) {
 }
 
-// 按 position/color/uv 固定布局读取顶点并允许额外的尾部步长。
-std::vector<Vertex> Vfetch::fetch(
-    std::uint32_t address, std::uint32_t count, std::uint32_t stride) const {
-    validate_range(m_memory, address, count, stride, 40);
+// 按本次绘制的布局映射属性，读取流之前验证全部偏移与访问范围。
+std::vector<Vertex> Vfetch::fetch(std::uint32_t address,
+    std::uint32_t count,
+    std::uint32_t stride,
+    std::uint32_t layout_address,
+    unsigned varying_count) const {
+    if (varying_count > MAX_VARYING_COMPONENTS || (layout_address == 0 && varying_count != 0)) {
+        throw std::invalid_argument("invalid vertex varying layout");
+    }
+    // 表内前三项分别描述位置、颜色、UV连续分量；每项自定义属性是单个FP32。
+    std::array<std::uint32_t, 3 + MAX_VARYING_COMPONENTS> offsets{0, 16, 32};
+    const auto entries = 3 + varying_count;
+    if (layout_address != 0) {
+        validate_range(m_memory, layout_address, entries, 4, 4);
+        for (unsigned slot = 0; slot < entries; ++slot) {
+            offsets[slot] = m_memory.read(layout_address + 4 * slot, 4);
+        }
+    }
+    if (offsets[0] == ABSENT_ATTRIBUTE) {
+        throw std::invalid_argument("vertex layout requires position");
+    }
+    std::uint32_t record_bytes = 0;
+    for (unsigned slot = 0; slot < entries; ++slot) {
+        const auto offset = offsets[slot];
+        if (offset == ABSENT_ATTRIBUTE) {
+            continue;
+        }
+        const unsigned bytes = slot < 2 ? 16 : slot == 2 ? 8 : 4;
+        if (offset % 4 != 0 || std::uint64_t(offset) + bytes > stride) {
+            throw std::invalid_argument("attribute outside vertex stride or unaligned");
+        }
+        record_bytes = std::max(record_bytes, offset + bytes);
+    }
+    validate_range(m_memory, address, count, stride, record_bytes);
     std::vector<Vertex> result(count);
     for (std::uint32_t i = 0; i < count; ++i) {
-        const auto base =
-            static_cast<std::uint32_t>(std::uint64_t(address) + std::uint64_t(i) * stride);
-        for (unsigned j = 0; j < 4; ++j) {
-            result[i].m_position[j] = read_float(m_memory, base + j * 4);
+        const auto base = address + i * stride;
+        auto& vertex = result[i];
+        for (unsigned j = 0; j < vertex.m_position.size(); ++j) {
+            vertex.m_position[j] = read_float(m_memory, base + offsets[0] + j * 4);
         }
-        for (unsigned j = 0; j < 4; ++j) {
-            result[i].m_color[j] = read_float(m_memory, base + 16 + j * 4);
+        if (offsets[1] != ABSENT_ATTRIBUTE) {
+            for (unsigned j = 0; j < vertex.m_color.size(); ++j) {
+                vertex.m_color[j] = read_float(m_memory, base + offsets[1] + j * 4);
+            }
         }
-        for (unsigned j = 0; j < 2; ++j) {
-            result[i].m_uv[j] = read_float(m_memory, base + 32 + j * 4);
+        if (offsets[2] != ABSENT_ATTRIBUTE) {
+            for (unsigned j = 0; j < vertex.m_uv.size(); ++j) {
+                vertex.m_uv[j] = read_float(m_memory, base + offsets[2] + j * 4);
+            }
+        }
+        for (unsigned slot = 0; slot < varying_count; ++slot) {
+            if (offsets[3 + slot] != ABSENT_ATTRIBUTE) {
+                vertex.m_varyings[slot] = read_float(m_memory, base + offsets[3 + slot]);
+            }
         }
     }
     return result;

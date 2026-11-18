@@ -21,8 +21,9 @@ public:
     }
 
     // 通过纹理单元读取过滤结果。
-    helo::Color sample(const TextureDesc& texture, float u, float v) override {
-        return m_tex.sample(texture_desc(texture), u, v);
+    helo::Color sample(
+        const TextureDesc& texture, float u, float v, unsigned levels, float lod) override {
+        return m_tex.prepare(texture_desc(texture), levels).sample(u, v, lod);
     }
 
 private:

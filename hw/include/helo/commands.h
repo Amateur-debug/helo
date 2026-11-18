@@ -14,7 +14,7 @@ struct ShaderProgram {
 
 // 保存CP从RENDER包解码的三角形任务状态。
 struct DrawCommand {
-    std::uint32_t m_vertex_address = 0; // 指向position4、color4、uv2格式的顶点流。
+    std::uint32_t m_vertex_address = 0; // 指向按当前布局编码的顶点流。
     std::uint32_t m_vertex_count = 0; // 指定顶点流中的顶点数量。
     std::uint32_t m_vertex_stride = 40; // 指定顶点记录字节跨度。
     bool m_indexed = false; // 选择32位索引三角形列表或顺序顶点列表。
@@ -27,6 +27,13 @@ struct DrawCommand {
     ShaderProgram m_fragment_shader; // 配置插值和纹理输入的片元着色程序。
     bool m_texture_enabled = false; // 启用片元输入的固定功能纹理采样。
     TextureDesc m_texture; // 指定RGBA8纹理和过滤寻址方式。
+    std::uint32_t m_vertex_layout_address = 0; // 指向顶点属性偏移表，零使用默认布局。
+    unsigned m_varying_count = 0; // 指定本次绘制传递的自定义FP32分量数。
+    std::uint32_t m_texture_table_address = 0; // 指向图形Shader可访问的纹理描述符表。
+    std::uint32_t m_texture_binding_count = 0; // 指定从槽零起连续绑定的纹理数。
+    std::uint32_t m_raster_state_address = 0; // 指定可选的裁切和混合描述符。
+    RasterPrecision m_precision = RasterPrecision::FLOAT; // 指定光栅数值配置。
+    Scissor m_scissor{}; // 保存CP从描述符解码的矩形。
 };
 
 // 保存CP从CLEAR包解码的附件清除状态。
@@ -40,10 +47,12 @@ struct ClearCommand {
 // 保存CP从COMPUTE包解码的程序启动状态。
 struct ComputeCommand {
     std::uint32_t m_entry = 0; // 保存计算程序入口。
-    std::size_t m_thread_count = 0; // 指定必须同时驻留的线程数量。
+    std::size_t m_thread_count = 0; // 指定整包的逻辑线程总数。
     std::uint32_t m_param_base = 0; // 保存程序参数地址。
     unsigned m_register_count = 32; // 声明任务寄存器数量。
-    std::size_t m_step_budget = 100000; // 限制计算任务执行的指令组数。
+    std::size_t m_step_budget = 100000; // 限制整包所有批次合计的指令组数。
+    std::uint32_t m_group_size = 0; // 指定一维工作组线程数；零表示独立线程任务。
+    std::uint32_t m_shared_bytes = 0; // 指定每个工作组的独立共享存储字节数。
 };
 
 // 定义内存command buffer的固定包格式，所有字均按小端存储。

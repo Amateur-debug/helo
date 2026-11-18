@@ -12,8 +12,11 @@ namespace helo::func {
 class Geom {
 public:
     explicit Geom(const Mem& memory);
-    std::vector<Vertex> fetch(
-        std::uint32_t address, std::uint32_t count, std::uint32_t stride = 40) const;
+    std::vector<Vertex> fetch(std::uint32_t address,
+        std::uint32_t count,
+        std::uint32_t stride = 40,
+        std::uint32_t layout_address = 0,
+        unsigned varying_count = 0) const;
     std::vector<std::uint32_t> fetch_indices(std::uint32_t address, std::uint32_t count) const;
     void validate_assembly(
         std::size_t vertex_count, const std::vector<std::uint32_t>& indices) const;

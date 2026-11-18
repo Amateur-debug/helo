@@ -142,12 +142,11 @@ void compare_draw(Vhelo_flat_draw& top,
             triangle[i].m_color[c] = float((texture.vertex_rgba[i] >> (c * 8)) & 255) / 255.f;
         }
     }
-    for (auto fragment : rast.rasterize(triangle, 8, 8)) {
+    for (auto fragment : rast.rasterize(triangle, 8, 8, helo::RasterPrecision::Q4_Q16_V1)) {
         ++covered;
-        fragment.m_depth =
-            interpolate_depth
-                ? float(std::floor(double(fragment.m_depth) * 65536.0 + 0.5) / 65536.0)
-                : depth;
+        if (!interpolate_depth) {
+            fragment.m_depth = depth;
+        }
         std::uint32_t expected_rgba = rgba;
         if (texture.interpolate_color) {
             expected_rgba = 0;
@@ -157,13 +156,9 @@ void compare_draw(Vhelo_flat_draw& top,
             }
         }
         if (texture.enabled) {
-            const auto u_q16 = texture.interpolate_uv
-                                   ? std::int32_t(std::llround(double(fragment.m_uv[0]) * 65536.0))
-                                   : texture.u_q16;
-            const auto v_q16 = texture.interpolate_uv
-                                   ? std::int32_t(std::llround(double(fragment.m_uv[1]) * 65536.0))
-                                   : texture.v_q16;
-            const auto sample = tex.sample(desc, float(u_q16) / 65536.f, float(v_q16) / 65536.f);
+            const auto u_q16 = texture.interpolate_uv ? fragment.m_q16_uv[0] : texture.u_q16;
+            const auto v_q16 = texture.interpolate_uv ? fragment.m_q16_uv[1] : texture.v_q16;
+            const auto sample = tex.prepare(desc).sample_q16(u_q16, v_q16);
             const auto source = expected_rgba;
             expected_rgba = 0;
             for (unsigned c = 0; c < 4; ++c) {
@@ -415,6 +410,51 @@ void run_test() {
             {0, 0, 0},
             attributes);
     }
+    // 宽三角形的Q8边值乘透视权重和大UV超出64位，逐像素比较纹理重复寻址。
+    for (unsigned pixel = 0; pixel < 64; ++pixel) {
+        host_write(top, memory, 1024 + 4 * pixel, bits(1.f));
+    }
+    DrawAttributes wide;
+    wide.enabled = true;
+    wide.interpolate_uv = true;
+    wide.interpolate_color = true;
+    wide.repeat_u = true;
+    wide.repeat_v = true;
+    wide.vertex_u_q16 = {-2147483648, 2147483520, -1073741824};
+    wide.vertex_v_q16 = {1073741824, 2147483520, -2147483648};
+    wide.inv_w_q16 = {65536, 65535, 32768};
+    wide.vertex_rgba = {0xff123456, 0xff876543, 0xffff6699};
+    compare_draw(top,
+        memory,
+        rast,
+        tex,
+        rop,
+        Triangle{{{-524288, -524288}, {524272, 0}, {0, 524272}}},
+        0,
+        0,
+        false,
+        true,
+        {0, 65536, 32767},
+        wide);
+    // 大的绝对坐标紧贴纹素边界，转成binary32会丢失最低一位Q16小数。
+    for (unsigned pixel = 0; pixel < 64; ++pixel) {
+        host_write(top, memory, 1024 + 4 * pixel, bits(1.f));
+    }
+    wide.interpolate_uv = false;
+    wide.u_q16 = 0x7fff3fff;
+    wide.v_q16 = -0x7fff4001;
+    compare_draw(top,
+        memory,
+        rast,
+        tex,
+        rop,
+        Triangle{{{0, 0}, {128, 0}, {0, 128}}},
+        .5f,
+        0xffffffff,
+        false,
+        false,
+        {},
+        wide);
     top.texture_enable = 1;
     top.texture_interpolate_uv = 1;
     top.inv_w0_q16 = 0;

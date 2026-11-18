@@ -24,13 +24,15 @@ Geom由[Gpu](gpu.md)按值持有，负责顶点/索引获取、三角形装配�
 
 GPU内部Cp在fetch之后、process之前调度Shader执行顶点程序，Geom本身不持有Shader，
 也不执行着色器程序。process接收的数据已经完成VS变换；关闭VS时使用
-顶点流原始属性。Geom输出包含未除w的color/uv和inv_w，交给[Rast](rast.md)。
+顶点流原始属性。Geom输出包含未除w的color/uv、自定义属性和inv_w，交给[Rast](rast.md)。
 
 ## 资源布局、裁剪与视口
 
-顶点布局是小端 FP32：position.xyzw 在字节0–15，color.rgba 在16–31，
+默认顶点布局是小端 FP32：position.xyzw 在字节0–15，color.rgba 在16–31，
 uv 在32–39。默认 stride=40，可声明更大、四字节对齐的跨度。索引是
 小端 uint32，必须小于上传顶点数。非索引顶点数或索引数必须为3的倍数。
+
+RENDER 字 57 可给出一个非零的、四字节对齐的布局表地址，字 58 给出自定义 FP32 分量数 N，范围为 0–16。布局表共 3+N 个小端 uint32，依次保存 position4、color4、uv2 和各个自定义标量在单条顶点记录内的**字节偏移**。每个偏移须四字节对齐，属性的末端须位于 stride 之内。多个槽可读同一地址。position 必填，其余槽可填 `0xffffffff`，对应颜色默认白色、UV 和自定义分量默认零。位置、颜色、UV 各自内部连续。布局表地址为零时 N 必须为零，沿用默认布局。即使顶点数为零也校验布局。裁剪交点对自定义分量使用与颜色相同的齐次线性插值，视口变换原样传递这些分量。
 
 VS 在图元装配前对顶点流的每个记录执行一次，包括未被索引引用的记录；
 复用索引不会重复执行该顶点。Draw 显式启用索引但 index_count=0 时为空绘制。
@@ -52,7 +54,7 @@ GeometryState默认不剔除、NDC CCW为正面，视口为(0,0,1,1)、深度[0,
 
 ## 状态和错误
 
-Vfetch先验证起点、stride及整个有效范围：stride至少40且四字节对齐，
+Vfetch先验证起点、stride及整个有效范围。stride须四字节对齐，且足以容纳所有已声明的属性。默认布局至少需要40字节。
 索引跨度固定4字节；count=0仍检查布局但不读内存。Pa拒绝不完整三角形
 列表和越界索引。Vp拒绝非正w、非法视口、坐标或倒数w溢出；非法剔除枚举报错。
 模块无跨命令状态、不写Mem，没有需要单独清理的执行队列。
@@ -61,7 +63,7 @@ Vfetch先验证起点、stride及整个有效范围：stride至少40且四字节
 
 ### Vfetch：地址生成与属性装载
 
-对count>0，先用64位中间值计算末端开区间
+默认布局对count>0，先用64位中间值计算末端开区间
 `end = address + (count-1)*stride + 40`。检查起点/stride对齐、end不超过
 2^32，并检查首字与末字都在Mem容量内，再创建输出向量。顶点i的基址为
 `address+i*stride`，依次读取10个32位字并保留位模式转换为float：
@@ -143,7 +145,7 @@ BACK剔除非正面，FRONT剔除正面，NONE保留两种朝向。剩余ScreenT
 `geom_test_func`通过GeomDut覆盖装配、六平面裁剪和属性、视口映射、
 朝向、退化、非法属性和顶点读取边界。测试：
 [`geom_test.cpp`](../hw/verif/tests/geom/geom_test.cpp)。
-当前只支持固定position4/color4/uv2布局与三角形列表，没有点/线拓扑、
+当前支持三角形列表，尚无点/线拓扑、
 几何着色器或细分。图形ABI见[Shader图形ABI](graphics_abi.md)。
 
 浮点表示、舍入及跨实现容差统一见[图形数值契约](numerics.md)。

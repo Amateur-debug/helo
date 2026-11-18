@@ -7,6 +7,7 @@ add_library(helo_func_model STATIC
     geom/vp.cpp
     geom/geom.cpp
     rast/setup.cpp
+    rast/fixed.cpp
     rast/interp.cpp
     rast/rast.cpp
     tex/tex.cpp

@@ -145,8 +145,9 @@ static void check_gpu_configuration() {
     compute.m_entry = VS_BASE;
     compute.m_thread_count = 65;
     configured->submit(compute);
-    require(configured->run().m_status == RunStatus::FAULT,
-        "GPU shader capacity configuration was ignored");
+    complete(*configured);
+    require(configured->counters().m_shader_steps == 3,
+        "GPU did not execute both resident batches of a 65-thread dispatch");
     configured->reset();
     compute.m_thread_count = 64;
     configured->submit(compute);
@@ -208,10 +209,108 @@ static void check_fragment_batch_fault() {
         "fragment fault changed successful batch boundary");
 }
 
+// 用介于浮点深度和量化深度之间的目标值检验整机RENDER精度选择。
+static void check_fixed_depth_compare() {
+    auto dut = make_gpu_dut();
+    const auto framebuffer = test_framebuffer(2, 2);
+    helo::ClearCommand clear;
+    clear.m_framebuffer = framebuffer;
+    clear.m_depth = .500001f;
+    auto draw = test_draw(framebuffer);
+    quad_indices(*dut);
+    upload_vertices(*dut, VERTEX_BASE, quad(1.f / 131072, {1, 0, 0, 1}));
+    dut->submit_commands({clear, draw});
+    complete(*dut);
+    require(dut->counters().m_passed == 0, "unquantized depth should fail LESS");
+    draw.m_precision = helo::RasterPrecision::Q4_Q16_V1;
+    dut->submit_commands({clear, draw});
+    complete(*dut);
+    require(dut->counters().m_passed == 4 && dut->read(framebuffer.m_depth_address, 4) == bits(.5f),
+        "Q16 depth must pass LESS and commit its exact binary32 representation");
+}
+
+// 通过顶点流偏移表、实际VS和FS验证可选属性、跨阶段写回与透视插值。
+static void check_vertex_layout() {
+    auto dut = make_gpu_dut();
+    const auto framebuffer = test_framebuffer(4, 4);
+    auto draw = test_draw(framebuffer);
+    draw.m_indexed = false;
+    draw.m_vertex_count = 3;
+    draw.m_vertex_stride = 20;
+    draw.m_vertex_layout_address = INDEX_BASE;
+    draw.m_varying_count = 2;
+    // 记录首字为输入属性，位置位于后四字；第二个属性仅由VS生成。
+    const std::array<std::uint32_t, 5> offsets{4, 0xffffffff, 0xffffffff, 0, 0xffffffff};
+    for (unsigned i = 0; i < offsets.size(); ++i) {
+        dut->write(INDEX_BASE + 4 * i, 4, offsets[i]);
+    }
+    const std::array<std::array<float, 5>, 3> records{
+        {{0, -1, 1, 0, 1}, {1, 2, 2, 0, 2}, {0, -4, -4, 0, 4}}};
+    for (unsigned i = 0; i < records.size(); ++i) {
+        for (unsigned j = 0; j < records[i].size(); ++j) {
+            dut->write(VERTEX_BASE + 20 * i + 4 * j, 4, bits(records[i][j]));
+        }
+    }
+    draw.m_vertex_shader = {true, VS_BASE, 0, 50};
+    draw.m_fragment_shader = {true, FS_BASE, 0, 50};
+    dut->upload_program(VS_BASE, {fp(0, 49, 48, 48), EXIT});
+    dut->upload_program(
+        FS_BASE, {imm(2, 1, 0, 48, 0), imm(2, 2, 0, 49, 0), imm(2, 3, 0, 9, 0), EXIT});
+    helo::ClearCommand clear;
+    clear.m_framebuffer = framebuffer;
+    const auto packet = encode_commands({draw});
+    require(packet[57] == INDEX_BASE && packet[58] == 2, "vertex layout word indices");
+    dut->submit_commands({clear, draw});
+    complete(*dut);
+    // 屏幕重心(3/4,1/8,1/8)，倒数w为(1,1/2,1/4)，属性期望为2/27。
+    pixel_is(dut->read_color(framebuffer),
+        4,
+        0,
+        0,
+        {19, 38, 0, 255},
+        "custom layout / VS-to-FS varying");
+    draw.m_vertex_shader.m_enabled = false;
+    dut->submit_commands({clear, draw});
+    complete(*dut);
+    pixel_is(dut->read_color(framebuffer),
+        4,
+        0,
+        0,
+        {19, 0, 0, 255},
+        "disabled VS should forward vertex stream and default missing varying to zero");
+    // 每次故障必须在执行顶点着色或写附件之前报告。
+    const auto reject = [&](const helo::DrawCommand& bad) {
+        dut->reset();
+        dut->submit(bad);
+        require(dut->run().m_status == RunStatus::FAULT && dut->counters().m_vertices == 0,
+            "invalid vertex layout accepted or executed shader");
+    };
+    auto bad = draw;
+    bad.m_varying_count = 17;
+    reject(bad);
+    bad = draw;
+    bad.m_fragment_shader.m_register_count = 49;
+    reject(bad);
+    bad = draw;
+    bad.m_vertex_layout_address = 0;
+    reject(bad);
+    bad.m_vertex_layout_address = 0xfffffffcU;
+    reject(bad);
+    dut->write(INDEX_BASE + 12, 4, 0xfffffffcU);
+    reject(draw);
+    dut->write(INDEX_BASE + 12, 4, 2);
+    reject(draw);
+    dut->write(INDEX_BASE + 12, 4, 0);
+    dut->write(INDEX_BASE, 4, 0xffffffffU);
+    reject(draw);
+}
+
 // 检验可编程顶点和片元、深度顺序、纹理、丢弃及跨批次ABI。
 void gpu_test() {
     check_gpu_configuration();
     check_fragment_batch_fault();
+    check_vertex_layout();
+    check_fixed_depth_compare();
     auto dut = make_gpu_dut();
     const auto framebuffer = test_framebuffer();
     helo::ClearCommand clear;

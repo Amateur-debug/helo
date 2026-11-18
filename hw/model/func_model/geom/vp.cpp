@@ -45,6 +45,7 @@ ScreenVertex Vp::transform(const Vertex& vertex, const Viewport& viewport) const
     }
     result.m_color = vertex.m_color;
     result.m_uv = vertex.m_uv;
+    result.m_varyings = vertex.m_varyings;
     return result;
 }
 }

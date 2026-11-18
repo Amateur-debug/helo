@@ -3,6 +3,11 @@
 
 namespace helo::func {
 enum class Operation {
+    LDS_W,
+    STS_W,
+    ATOM_ADD_SHARED,
+    ATOM_ADD_GLOBAL,
+    BARG,
     LUI,
     AUIPC,
     JAL,
@@ -69,9 +74,10 @@ enum class Operation {
     FCVT_S_WU,
     CSRRW,
     CSRRS,
-    CSRRC
+    CSRRC,
+    TEX_LOD
 };
-enum class ExecutionUnit { IU, LSU, WCU, FPU };
+enum class ExecutionUnit { IU, LSU, WCU, FPU, TEX };
 
 // 保存译码后的运算、执行单元、寄存器依赖与立即数信息。
 struct Instr {
@@ -97,8 +103,25 @@ struct BufferedInstr {
     Instr m_instr; // 保存该路径待执行的解码指令。
 };
 
+// 描述当前驻留批次在逻辑计算任务中的位置及工作组资源。
+struct DispatchRange {
+    std::uint32_t m_thread_base = 0; // 保存批次首个全局线程编号。
+    std::uint32_t m_total_threads = 0; // 保存整个计算包的实际线程总数。
+    std::uint32_t m_group_size = 0; // 保存声明的工作组大小，零表示无显式组。
+    std::uint32_t m_shared_bytes = 0; // 指定每个工作组重新分配的共享字节数。
+
+    // 从组内驻留槽恢复任务内的warp序号，非整warp大小的组也独占尾warp。
+    std::uint32_t warp_base() const {
+        if (!m_group_size) {
+            return m_thread_base / WARP_SIZE;
+        }
+        return (m_thread_base / m_group_size) * ((m_group_size - 1) / WARP_SIZE + 1);
+    }
+};
+
 // 保存发射时的任务参数、解码信息与各线程源操作数快照。
 struct IssuedInstr {
+    DispatchRange m_range; // 提供计算线程及工作组的编号信息。
     std::uint32_t m_thread_count = 0; // 保存当前任务启动的线程总数。
     std::uint32_t m_param_base = 0; // 保存当前任务参数区的字节基地址。
     BufferedInstr m_decoded; // 保留发射时的解码指令与线程路径。

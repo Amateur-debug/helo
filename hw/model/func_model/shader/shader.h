@@ -7,6 +7,7 @@
 #include "isu.h"
 #include "iu.h"
 #include "lsu.h"
+#include "tex/tex.h"
 #include "wbu.h"
 #include "wcu.h"
 #include "wmu.h"
@@ -35,16 +36,22 @@ public:
     void launch(std::uint32_t entry,
         std::size_t thread_count,
         std::uint32_t param_base = 0,
-        unsigned register_count = REGISTER_COUNT);
-    bool step();
-    RunResult run(std::size_t max_steps = 100000);
+        unsigned register_count = REGISTER_COUNT,
+        const DispatchRange& range = {});
+    bool step(const Tex::Bindings& textures = {});
+    RunResult run(std::size_t max_steps = 100000, const Tex::Bindings& textures = {});
     Regfile& registers();
     const Regfile& registers() const;
     const std::vector<Warp>& warps() const;
 
 private:
     void reset_control();
-    ExecutionResult execute_batches(const IssuedInstr& instruction, std::uint64_t& batches);
+    ExecutionResult execute_batches(
+        const IssuedInstr& instruction, std::uint64_t& batches, const Tex::Bindings& textures);
+    DispatchRange m_range; // 保存当前批次的全局编号与工作组配置。
+    Mem m_shared{0}; // 保存当前工作组独立且初始为零的共享存储。
+    Dcache m_shared_port{m_shared}; // 转发工作组共享地址访问。
+    Lsu m_shared_lsu{m_shared_port}; // 与全局地址空间共用相同的访存提交规则。
     ExecutionConfig m_execution; // 保存核心固定的执行通路配置。
     ExecutionStats m_stats; // 累计成功提交的各类执行批次。
     std::size_t m_max_threads; // 保存硬件支持的线程槽位上限。

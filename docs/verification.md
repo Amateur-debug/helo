@@ -143,8 +143,8 @@ ctest --test-dir "$build_dir" -R '^gpu_render_test_func$' --output-on-failure
 
 ## 测试程序与入口索引
 
-`HELO_DUT=func`当前CTest注册26项（每项包含多个用例）：Shader 14项、图形单元4项、存储3项、GPU/CP 2项、
-完整渲染1项、功能模型内部资源1项、代码格式检查1项。多个子单元通过所属模块测试覆盖，空骨架文件不计作独立测试。
+`HELO_DUT=func`当前CTest注册28项（每项包含多个用例）：Shader 14项、图形单元4项、存储3项、GPU/CP及其扩展 4项、
+完整渲染1项、功能模型内部资源1项、代码格式检查1项。多个子单元通过所属模块测试覆盖。shader_texture_test_func 用真实 VS/FS 机器码验证绑定表、显式 LOD 和自定义属性。raster_outputs_test_func 验证 MSAA、scissor、两个颜色输出、sRGB 解析、混合因子及异常时的附件状态。
 
 | 可执行程序 | selector | 对应接口 |
 | --- | --- | --- |

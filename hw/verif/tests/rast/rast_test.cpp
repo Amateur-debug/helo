@@ -54,10 +54,49 @@ static void check_random_shared_edges(RastDut& dut) {
     }
 }
 
+// 以解析例验证非网格顶点落点、共享边归属及Q16/UNORM8正负半值舍入。
+static void check_fixed_precision(RastDut& dut) {
+    const auto mode = helo::RasterPrecision::Q4_Q16_V1;
+    const auto a = screen_vertex(.52f, .52f), b = screen_vertex(2.52f, .52f);
+    const auto c = screen_vertex(2.52f, 2.52f), d = screen_vertex(.52f, 2.52f);
+    std::array<unsigned, 9> hits{};
+    for (const helo::ScreenTriangle& tri :
+        {helo::ScreenTriangle{a, b, c}, helo::ScreenTriangle{d, c, a}}) {
+        for (const auto& f : dut.rasterize(tri, 3, 3, mode)) {
+            ++hits[3 * f.m_y + f.m_x];
+        }
+    }
+    graphics_check(hits == std::array<unsigned, 9>{1, 1, 0, 1, 1, 0, 0, 0, 0},
+        "off-grid quad snapped to half-pixel boundaries without cracks or duplicates");
+    helo::ScreenTriangle tri{screen_vertex(0, 0), screen_vertex(2, 0), screen_vertex(0, 2)};
+    for (unsigned i = 1; i < 3; ++i) {
+        tri[i].m_position[2] = 1.f / 65536;
+        tri[i].m_uv = {-1.f / 65536, 1.f / 65536};
+        tri[i].m_color[0] = 1.f / 255;
+    }
+    tri[0].m_color[0] = 0;
+    const auto first = dut.rasterize(tri, 1, 1, mode);
+    graphics_check(first.size() == 1 && first[0].m_depth == 1.f / 65536 &&
+                       first[0].m_q16_uv == std::array<std::int32_t, 2>{-1, 1} &&
+                       first[0].m_color[0] == 1.f / 255,
+        "Q16 and UNORM8 half ties must round away from zero");
+    for (auto& v : tri) {
+        v.m_position[2] = .5f / 65536;
+        v.m_uv = {-1e10f, 1e10f};
+        v.m_color = {-1, 2, .5f, 1};
+    }
+    const auto saturated = dut.rasterize(tri, 1, 1, mode);
+    graphics_check(saturated.size() == 1 && saturated[0].m_depth == 1.f / 65536 &&
+                       saturated[0].m_q16_uv == std::array<std::int32_t, 2>{INT32_MIN, INT32_MAX} &&
+                       saturated[0].m_color == helo::Color{0, 1, 128.f / 255, 1},
+        "fixed vertex inputs must saturate and round at the raster boundary");
+}
+
 // 检查共享边覆盖、裁界、退化和独立透视插值公式。
 void rast_test() {
     auto dut = make_rast_dut();
     check_random_shared_edges(*dut);
+    check_fixed_precision(*dut);
     const auto a = screen_vertex(0, 0), b = screen_vertex(4, 0), c = screen_vertex(4, 4),
                d = screen_vertex(0, 4);
     std::map<std::pair<unsigned, unsigned>, unsigned> coverage;

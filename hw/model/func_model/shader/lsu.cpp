@@ -22,6 +22,10 @@ void Lsu::validate(const IssuedInstr& instruction) const {
         break;
     case Operation::LW:
     case Operation::SW:
+    case Operation::LDS_W:
+    case Operation::STS_W:
+    case Operation::ATOM_ADD_SHARED:
+    case Operation::ATOM_ADD_GLOBAL:
         width = 4;
         break;
     default:
@@ -54,6 +58,9 @@ ExecutionResult Lsu::execute(const IssuedInstr& instruction) {
         sign = true;
         break;
     case Operation::LW:
+    case Operation::LDS_W:
+    case Operation::ATOM_ADD_SHARED:
+    case Operation::ATOM_ADD_GLOBAL:
         width = 4;
         break;
     case Operation::LBU:
@@ -71,6 +78,7 @@ ExecutionResult Lsu::execute(const IssuedInstr& instruction) {
         store = true;
         break;
     case Operation::SW:
+    case Operation::STS_W:
         width = 4;
         store = true;
         break;
@@ -91,6 +99,10 @@ ExecutionResult Lsu::execute(const IssuedInstr& instruction) {
             m_cache.write(address, width, instruction.m_src2[t]);
         } else {
             auto value = m_cache.read(address, width);
+            if (decoded.m_operation == Operation::ATOM_ADD_SHARED ||
+                decoded.m_operation == Operation::ATOM_ADD_GLOBAL) {
+                m_cache.write(address, width, value + instruction.m_src2[t]);
+            }
             if (sign) {
                 const auto sign_bit = 1u << (width * 8 - 1);
                 value = (value ^ sign_bit) - sign_bit;

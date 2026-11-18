@@ -359,6 +359,7 @@ if(HELO_DUT STREQUAL "rtl")
         "${PROJECT_SOURCE_DIR}/hw/rtl/rast/helo_rast_coverage.v"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/rast/rast_coverage_rtl_compare.cpp"
         "${PROJECT_SOURCE_DIR}/hw/model/func_model/rast/rast.cpp"
+        "${PROJECT_SOURCE_DIR}/hw/model/func_model/rast/fixed.cpp"
         "${PROJECT_SOURCE_DIR}/hw/model/func_model/rast/setup.cpp"
         "${PROJECT_SOURCE_DIR}/hw/model/func_model/rast/interp.cpp")
     add_custom_command(OUTPUT "${rtl_rast_bin}"
@@ -445,6 +446,7 @@ if(HELO_DUT STREQUAL "rtl")
     set(rtl_draw_sources ${rtl_draw_modules}
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/gpu/flat_draw_rtl_compare.cpp"
         "${PROJECT_SOURCE_DIR}/hw/model/func_model/rast/rast.cpp"
+        "${PROJECT_SOURCE_DIR}/hw/model/func_model/rast/fixed.cpp"
         "${PROJECT_SOURCE_DIR}/hw/model/func_model/rast/setup.cpp"
         "${PROJECT_SOURCE_DIR}/hw/model/func_model/rast/interp.cpp"
         "${PROJECT_SOURCE_DIR}/hw/model/func_model/tex/tex.cpp"
@@ -555,12 +557,14 @@ add_executable(gpu_tests_func
     dut/func_gpu_dut.cpp
     tests/gpu/gpu_test_main.cpp
     tests/gpu/gpu_test.cpp
+    tests/gpu/raster_outputs_test.cpp
+    tests/gpu/shader_texture_test.cpp
     tests/cp/cp_test.cpp
     tests/common/png_writer.cpp
     tests/common/command_buffer.cpp)
 target_include_directories(gpu_tests_func PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gpu_tests_func PRIVATE helo_func_model)
-foreach(unit gpu cp)
+foreach(unit gpu shader_texture raster_outputs cp)
     add_test(NAME ${unit}_test_func
         COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/run_test.py"
             --name ${unit}_test_func --dut func --logs "${PROJECT_SOURCE_DIR}/logs"

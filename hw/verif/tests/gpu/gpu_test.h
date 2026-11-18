@@ -5,6 +5,8 @@
 
 namespace helo::verif {
 void gpu_test();
+void shader_texture_test();
+void raster_outputs_test();
 void gpu_render_test(const std::string& output_path);
 void upload_vertices(GpuDut& dut, std::uint32_t address, const std::vector<helo::Vertex>& vertices);
 helo::FramebufferDesc test_framebuffer(unsigned width = 32, unsigned height = 32);

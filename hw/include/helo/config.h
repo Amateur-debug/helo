@@ -2,6 +2,9 @@
 #include <cstddef>
 
 namespace helo {
+// 限定每个计算工作组可声明的共享存储容量。
+constexpr std::size_t MAX_SHARED_BYTES = 64 * 1024;
+
 // 配置单个Shader中各类标量执行通路的数量。
 struct ExecutionConfig {
     unsigned m_iu_count = 32; // 指定整数执行通路数，范围1–32。

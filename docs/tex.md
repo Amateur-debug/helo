@@ -9,8 +9,9 @@ Tex是[Gpu](gpu.md)持有的class，`Tex(Mem&)`构造时绑定统一存储。
 [`tex.cpp`](../hw/model/func_model/tex/tex.cpp)。
 
 GPU内部Cp将[Rast](rast.md)插值后的uv传给Tex，在启动片元Shader前完成采样，
-再将采样结果写入r5–r8，详见[图形ABI](graphics_abi.md)。没有Shader发起的
-TEX请求、采样回调或SFU纹理路径；Shader可以使用该输入参与普通FP32计算。
+再将采样结果写入r5–r8。绘制也可设置独立的绑定表，供顶点和片元
+Shader 使用机器码 `TEX.LOD` 按每个线程计算的 UV 和 LOD 主动采样。
+两个入口可以同时启用。[图形 ABI](graphics_abi.md)
 
 ## TextureDesc与存储布局
 
@@ -24,6 +25,22 @@ TEX请求、采样回调或SFU纹理路径；Shader可以使用该输入参与�
 纹素紧密按行存储，(x,y)地址为address+4*(y*width+x)，字节依次为RGBA。
 输出各分量为字节值除以255，不作sRGB转换。Cp处理关闭纹理状态时自己提供白色
 采样输入，不调用Tex。纹理内容在每次sample时读取，模块没有缓存副本。
+
+## Shader 绑定表与 mip 布局
+
+RENDER 字 55、56 分别是绑定表地址与槽数。槽数范围 0–16，槽数为零时地址须为零。
+每槽占七个连续小端 32 位字，依次为 `address,width,height,filter,wrap_u,wrap_v,level_count`。
+表和纹素起点均须四字节对齐。CP 在 VS 开始前快照描述符，并验证所有级的内存范围。
+纹素数据由每次指令实时读取。程序可使用任意已绑定槽，绑定仅在当前绘制内有效。
+
+应用按层号从小到大提供紧密连续的 RGBA8 图像，各级都按行存储。第 0 级使用所给宽高，
+下一级的每条边取 `max(1,floor(size/2))`。链至少包含一级，可在 1×1 之前结束，
+到达 1×1 后不能再添加。内联固定功能纹理只使用第 0 级。
+
+每个活动线程独立将有限 FP32 LOD 夹到 `[0,level_count-1]`。整数 LOD 读取对应一级，
+小数 LOD 按小数部分线性混合相邻两级。每一级的内部过滤与两轴寻址使用该槽描述符的设置。
+使用 BILINEAR 和分数 LOD 时可得到三线性过滤。越界槽或非有限 UV/LOD 会使该指令组失败。
+机器码字段见 [ISA](isa.md#texture-instruction)。
 
 ## 寻址与过滤
 
@@ -92,8 +109,9 @@ u=0且BILINEAR时横向邻居是-1和0：CLAMP将二者都映射到0；REPEAT
 
 `tex_test_func`独立检查nearest/bilinear、clamp/repeat、边界与非法资源；
 测试：[`tex_test.cpp`](../hw/verif/tests/tex/tex_test.cpp)。
-当前只有二维RGBA8单层纹理，无mipmap/LOD、导数、各向异性、压缩格式、
-比较采样或动态TEX指令。
+`shader_texture_test_func` 从 RENDER 包执行 VS 与 FS，检查两个纹理槽、修改后的 UV、
+分数 LOD、无绑定槽故障和 mip 资源范围。当前采样格式为二维 RGBA8，LOD 由程序提供；
+片元导数、各向异性、压缩格式和比较采样仍待实现。
 
 浮点及输出比较规则统一见[图形数值契约](numerics.md)。
 

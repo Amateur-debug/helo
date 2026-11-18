@@ -26,7 +26,8 @@ public:
     SubmitResult run(std::size_t max_commands = 100000);
     void reset();
     std::size_t pending() const;
-    std::vector<std::uint8_t> read_color(const FramebufferDesc& framebuffer) const;
+    std::vector<std::uint8_t> read_color(
+        const FramebufferDesc& framebuffer, unsigned attachment = 0) const;
 
 private:
     Mem m_memory; // 保存代码、顶点、纹理及所有附件的统一地址空间。

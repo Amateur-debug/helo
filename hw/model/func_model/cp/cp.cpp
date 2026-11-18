@@ -108,6 +108,18 @@ public:
         return f;
     }
 
+    // 读取兼容旧包的附件扩展，禁用的第二目标地址要求为零。
+    void framebuffer_extension(FramebufferDesc& f) {
+        const auto flags = word();
+        f.m_color1_address = word();
+        f.m_samples = (flags & 1U) ? 4 : 1;
+        f.m_has_color1 = (flags & 2U) != 0;
+        f.m_srgb = (flags & 4U) != 0;
+        if (flags > 7 || (!f.m_has_color1 && f.m_color1_address != 0)) {
+            throw std::invalid_argument("invalid framebuffer extension");
+        }
+    }
+
     // 解码一个Shader阶段的入口、资源声明和指令预算。
     ShaderProgram program() {
         ShaderProgram p;
@@ -211,6 +223,7 @@ void Cp::execute_packet(std::uint32_t address) {
         }
         c.m_depth = reader.real();
         c.m_stencil = reader.byte();
+        reader.framebuffer_extension(c.m_framebuffer);
         reader.finish();
         execute_clear(c);
         return;
@@ -222,6 +235,8 @@ void Cp::execute_packet(std::uint32_t address) {
         c.m_param_base = reader.word();
         c.m_register_count = reader.word();
         c.m_step_budget = reader.word();
+        c.m_group_size = reader.word();
+        c.m_shared_bytes = reader.word();
         reader.finish();
         execute_compute(c);
         return;
@@ -267,7 +282,17 @@ void Cp::execute_packet(std::uint32_t address) {
         c.m_texture.m_filter = reader.enumeration<TextureFilter>(1);
         c.m_texture.m_wrap_u = reader.enumeration<TextureWrap>(1);
         c.m_texture.m_wrap_v = reader.enumeration<TextureWrap>(1);
+        c.m_texture_table_address = reader.word();
+        c.m_texture_binding_count = reader.word();
+        c.m_vertex_layout_address = reader.word();
+        c.m_varying_count = reader.word();
+        reader.framebuffer_extension(c.m_framebuffer);
+        c.m_raster_state_address = reader.word();
+        c.m_precision = reader.enumeration<RasterPrecision>(1);
         reader.finish();
+        if (c.m_raster_state_address) {
+            decode_raster_state(c);
+        }
         execute_render(c);
         return;
     }
@@ -303,6 +328,32 @@ float read_float(const Shader& shader, std::size_t lane, unsigned reg) {
 }
 }
 
+// 对绘制状态表预检范围，完整解码裁切与混合状态后才接纳图元。
+void Cp::decode_raster_state(DrawCommand& c) const {
+    const auto address = c.m_raster_state_address;
+    if (address > UINT32_MAX - 35) {
+        throw std::out_of_range("raster state address overflow");
+    }
+    m_memory.validate(address + 32, 4);
+    const auto flags = m_memory.read(address, 4);
+    if (flags > 1) {
+        throw std::invalid_argument("invalid scissor enable");
+    }
+    c.m_scissor = {flags != 0,
+        m_memory.read(address + 4, 4),
+        m_memory.read(address + 8, 4),
+        m_memory.read(address + 12, 4),
+        m_memory.read(address + 16, 4)};
+    const auto factor = [&](unsigned offset) {
+        const auto value = m_memory.read(address + offset, 4);
+        if (value > static_cast<unsigned>(BlendFactor::INV_DST_COLOR)) {
+            throw std::invalid_argument("invalid raster blend factor");
+        }
+        return static_cast<BlendFactor>(value);
+    };
+    c.m_rop.m_factors = {factor(20), factor(24), factor(28), factor(32)};
+}
+
 // 通过ROP统一验证并清除目标附件。
 void Cp::execute_clear(const ClearCommand& command) {
     m_rop.clear(command.m_framebuffer, command.m_color, command.m_depth, command.m_stencil);
@@ -324,8 +375,8 @@ void Cp::validate_program(const ShaderProgram& program, unsigned minimum_registe
 }
 
 // 执行当前图形调用批次并拒绝错误或预算耗尽的输出。
-void Cp::run_program(const ShaderProgram& program) {
-    const auto result = m_shader.run(program.m_step_budget);
+void Cp::run_program(const ShaderProgram& program, const Tex::Bindings& textures) {
+    const auto result = m_shader.run(program.m_step_budget, textures);
     m_stats.m_shader_steps += result.m_steps;
     require_shader_completion(result);
 }
@@ -333,14 +384,32 @@ void Cp::run_program(const ShaderProgram& program) {
 // 验证资源后按固定顺序调度各阶段，片元临时存储最多容纳一个批次。
 void Cp::execute_render(const DrawCommand& command) {
     const auto target = m_rop.prepare(command.m_framebuffer);
+    const auto textures =
+        m_tex.prepare_bindings(command.m_texture_table_address, command.m_texture_binding_count);
     std::optional<Tex::Sampler> sampler;
     if (command.m_texture_enabled) {
         sampler.emplace(m_tex.prepare(command.m_texture));
     }
-    validate_program(command.m_vertex_shader, graphics_abi::VS_REGISTER_COUNT);
-    validate_program(command.m_fragment_shader, graphics_abi::FS_REGISTER_COUNT);
-    auto vertices =
-        m_geom.fetch(command.m_vertex_address, command.m_vertex_count, command.m_vertex_stride);
+    if (command.m_varying_count > MAX_VARYING_COMPONENTS) {
+        throw std::invalid_argument("too many vertex varying components");
+    }
+    const auto varying_registers =
+        command.m_varying_count == 0 ? 0U : graphics_abi::VARYING_BASE + command.m_varying_count;
+    validate_program(
+        command.m_vertex_shader, std::max(graphics_abi::VS_REGISTER_COUNT, varying_registers));
+    unsigned fs_registers = graphics_abi::FS_REGISTER_COUNT;
+    if (command.m_framebuffer.m_has_color1) {
+        fs_registers = graphics_abi::FS_COLOR1 + 4;
+    }
+    if (command.m_framebuffer.m_samples == 4) {
+        fs_registers = graphics_abi::FS_SAMPLE_ID + 1;
+    }
+    validate_program(command.m_fragment_shader, std::max(fs_registers, varying_registers));
+    auto vertices = m_geom.fetch(command.m_vertex_address,
+        command.m_vertex_count,
+        command.m_vertex_stride,
+        command.m_vertex_layout_address,
+        command.m_varying_count);
     const auto indices = command.m_indexed
                              ? m_geom.fetch_indices(command.m_index_address, command.m_index_count)
                              : std::vector<std::uint32_t>{};
@@ -350,7 +419,7 @@ void Cp::execute_render(const DrawCommand& command) {
         return;
     }
     m_geom.validate_assembly(vertices.size(), indices);
-    shade_vertices(command, vertices);
+    shade_vertices(command, vertices, textures);
     m_stats.m_vertex_invocations += vertices.size();
     const auto triangles = m_geom.process(vertices, indices, command.m_geometry);
     m_stats.m_raster_triangles += triangles.size();
@@ -360,10 +429,14 @@ void Cp::execute_render(const DrawCommand& command) {
                                        : GRAPHICS_BATCH_SIZE;
     fragments.reserve(fragment_capacity);
     for (const auto& triangle : triangles) {
-        auto cursor =
-            m_rast.begin(triangle, command.m_framebuffer.m_width, command.m_framebuffer.m_height);
+        auto cursor = m_rast.begin(triangle,
+            command.m_framebuffer.m_width,
+            command.m_framebuffer.m_height,
+            command.m_framebuffer.m_samples,
+            command.m_scissor,
+            command.m_precision);
         while (m_rast.next(cursor, fragments, fragment_capacity)) {
-            process_fragments(command, target, sampler, fragments);
+            process_fragments(command, target, sampler, textures, fragments);
         }
     }
     ++m_stats.m_draw_calls;
@@ -380,7 +453,8 @@ std::size_t Cp::graphics_batch_size(const ShaderProgram& program) const {
 }
 
 // 批量装载及读回顶点ABI，全部顶点完成后才进入几何处理。
-void Cp::shade_vertices(const DrawCommand& command, std::vector<Vertex>& vertices) {
+void Cp::shade_vertices(
+    const DrawCommand& command, std::vector<Vertex>& vertices, const Tex::Bindings& textures) {
     if (!command.m_vertex_shader.m_enabled) {
         return;
     }
@@ -406,12 +480,15 @@ void Cp::shade_vertices(const DrawCommand& command, std::vector<Vertex>& vertice
                 write_float(
                     m_shader, lane, graphics_abi::VS_UV + component, vertex.m_uv[component]);
             }
+            for (unsigned i = 0; i < command.m_varying_count; ++i) {
+                write_float(m_shader, lane, graphics_abi::VARYING_BASE + i, vertex.m_varyings[i]);
+            }
             m_shader.registers().write_scalar(lane / WARP_SIZE,
                 lane % WARP_SIZE,
                 graphics_abi::VS_VERTEX_ID,
                 static_cast<std::uint32_t>(first + lane));
         }
-        run_program(program);
+        run_program(program, textures);
         for (std::size_t lane = 0; lane < count; ++lane) {
             auto& vertex = vertices[first + lane];
             for (unsigned component = 0; component < 4; ++component) {
@@ -424,6 +501,9 @@ void Cp::shade_vertices(const DrawCommand& command, std::vector<Vertex>& vertice
                 vertex.m_uv[component] =
                     read_float(m_shader, lane, graphics_abi::VS_UV + component);
             }
+            for (unsigned i = 0; i < command.m_varying_count; ++i) {
+                vertex.m_varyings[i] = read_float(m_shader, lane, graphics_abi::VARYING_BASE + i);
+            }
         }
     }
 }
@@ -432,6 +512,7 @@ void Cp::shade_vertices(const DrawCommand& command, std::vector<Vertex>& vertice
 void Cp::process_fragments(const DrawCommand& command,
     const Rop::Target& target,
     const std::optional<Tex::Sampler>& sampler,
+    const Tex::Bindings& textures,
     std::vector<Fragment>& fragments) {
     const auto count = fragments.size();
     const auto& program = command.m_fragment_shader;
@@ -440,8 +521,12 @@ void Cp::process_fragments(const DrawCommand& command,
     }
     for (std::size_t lane = 0; lane < count; ++lane) {
         auto& fragment = fragments[lane];
-        const Color sampled =
-            sampler ? sampler->sample(fragment.m_uv[0], fragment.m_uv[1]) : Color{1, 1, 1, 1};
+        Color sampled{1, 1, 1, 1};
+        if (sampler) {
+            sampled = command.m_precision == RasterPrecision::Q4_Q16_V1
+                          ? sampler->sample_q16(fragment.m_q16_uv[0], fragment.m_q16_uv[1])
+                          : sampler->sample(fragment.m_uv[0], fragment.m_uv[1]);
+        }
         if (program.m_enabled) {
             for (unsigned component = 0; component < 4; ++component) {
                 write_float(m_shader,
@@ -451,12 +536,27 @@ void Cp::process_fragments(const DrawCommand& command,
                 write_float(
                     m_shader, lane, graphics_abi::FS_TEXTURE + component, sampled[component]);
             }
+            for (unsigned i = 0; i < command.m_varying_count; ++i) {
+                write_float(m_shader, lane, graphics_abi::VARYING_BASE + i, fragment.m_varyings[i]);
+            }
             write_float(m_shader, lane, graphics_abi::FS_UV, fragment.m_uv[0]);
             write_float(m_shader, lane, graphics_abi::FS_UV + 1, fragment.m_uv[1]);
-            write_float(
-                m_shader, lane, graphics_abi::FS_PIXEL_X, static_cast<float>(fragment.m_x) + 0.5F);
-            write_float(
-                m_shader, lane, graphics_abi::FS_PIXEL_Y, static_cast<float>(fragment.m_y) + 0.5F);
+            const auto offset =
+                Rast::sample_offset(command.m_framebuffer.m_samples, fragment.m_sample);
+            if (command.m_framebuffer.m_samples == 4) {
+                m_shader.registers().write_scalar(lane / WARP_SIZE,
+                    lane % WARP_SIZE,
+                    graphics_abi::FS_SAMPLE_ID,
+                    fragment.m_sample);
+            }
+            write_float(m_shader,
+                lane,
+                graphics_abi::FS_PIXEL_X,
+                static_cast<float>(fragment.m_x) + offset[0]);
+            write_float(m_shader,
+                lane,
+                graphics_abi::FS_PIXEL_Y,
+                static_cast<float>(fragment.m_y) + offset[1]);
             write_float(m_shader, lane, graphics_abi::FS_DEPTH, fragment.m_depth);
             m_shader.registers().write_scalar(lane / WARP_SIZE,
                 lane % WARP_SIZE,
@@ -466,10 +566,15 @@ void Cp::process_fragments(const DrawCommand& command,
             for (unsigned component = 0; component < 4; ++component) {
                 fragment.m_color[component] *= sampled[component];
             }
+            if (command.m_precision == RasterPrecision::Q4_Q16_V1) {
+                const Crop crop;
+                fragment.m_color = crop.unpack(crop.pack(fragment.m_color));
+            }
+            fragment.m_color1 = fragment.m_color;
         }
     }
     if (program.m_enabled) {
-        run_program(program);
+        run_program(program, textures);
     }
     m_stats.m_fragment_invocations += count;
     for (std::size_t lane = 0; lane < count; ++lane) {
@@ -482,6 +587,11 @@ void Cp::process_fragments(const DrawCommand& command,
             for (unsigned component = 0; component < 4; ++component) {
                 fragment.m_color[component] =
                     read_float(m_shader, lane, graphics_abi::FS_COLOR + component);
+            }
+            if (command.m_framebuffer.m_has_color1) {
+                for (unsigned c = 0; c < 4; ++c) {
+                    fragment.m_color1[c] = read_float(m_shader, lane, graphics_abi::FS_COLOR1 + c);
+                }
             }
             fragment.m_depth = read_float(m_shader, lane, graphics_abi::FS_DEPTH);
         }
@@ -496,11 +606,27 @@ void Cp::execute_compute(const ComputeCommand& command) {
     if (command.m_step_budget == 0) {
         throw std::invalid_argument("compute instruction budget must be positive");
     }
-    m_shader.launch(
-        command.m_entry, command.m_thread_count, command.m_param_base, command.m_register_count);
-    const auto result = m_shader.run(command.m_step_budget);
-    m_stats.m_shader_steps += result.m_steps;
-    require_shader_completion(result);
+    const auto capacity = m_shader.thread_capacity(command.m_register_count);
+    const auto batch_limit = command.m_group_size ? command.m_group_size : capacity;
+    DispatchRange range{0,
+        static_cast<std::uint32_t>(command.m_thread_count),
+        command.m_group_size,
+        command.m_shared_bytes};
+    auto remaining_steps = command.m_step_budget;
+    // 空任务也走launch检查入口和资源描述，完成一个合法的空调度。
+    do {
+        if (!remaining_steps) {
+            require_shader_completion(RunResult{});
+        }
+        const auto count = std::min(batch_limit, command.m_thread_count - range.m_thread_base);
+        m_shader.launch(
+            command.m_entry, count, command.m_param_base, command.m_register_count, range);
+        const auto result = m_shader.run(remaining_steps);
+        m_stats.m_shader_steps += result.m_steps;
+        require_shader_completion(result);
+        remaining_steps -= result.m_steps;
+        range.m_thread_base += static_cast<std::uint32_t>(count);
+    } while (range.m_thread_base < command.m_thread_count);
     ++m_stats.m_dispatches;
 }
 

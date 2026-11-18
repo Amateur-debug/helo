@@ -6,9 +6,11 @@ namespace helo::verif {
 class FuncRastDut final : public RastDut {
 public:
     // 生成像素中心覆盖片元。
-    std::vector<helo::Fragment> rasterize(
-        const helo::ScreenTriangle& triangle, std::uint32_t width, std::uint32_t height) override {
-        return m_rast.rasterize(triangle, width, height);
+    std::vector<helo::Fragment> rasterize(const helo::ScreenTriangle& triangle,
+        std::uint32_t width,
+        std::uint32_t height,
+        RasterPrecision precision) override {
+        return m_rast.rasterize(triangle, width, height, precision);
     }
 
     // 按指定重心坐标插值属性。

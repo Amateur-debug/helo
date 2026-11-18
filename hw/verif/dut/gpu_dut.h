@@ -38,7 +38,7 @@ public:
     virtual std::size_t pending() const = 0;
     virtual GpuCounters counters() const = 0;
     virtual std::vector<std::uint8_t> read_color(
-        const helo::FramebufferDesc& framebuffer) const = 0;
+        const helo::FramebufferDesc& framebuffer, unsigned attachment = 0) const = 0;
 
 protected:
     explicit GpuDut(std::size_t memory_bytes);

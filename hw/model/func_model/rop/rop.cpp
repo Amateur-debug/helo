@@ -30,15 +30,22 @@ void Rop::validate(const FramebufferDesc& framebuffer) const {
         throw std::invalid_argument("empty framebuffer");
     }
     const std::uint64_t pixels = std::uint64_t(framebuffer.m_width) * framebuffer.m_height;
-    if (pixels > (std::uint64_t(1) << 32) / 4) {
+    if (framebuffer.m_samples != 1 && framebuffer.m_samples != 4) {
+        throw std::invalid_argument("framebuffer requires one or four samples");
+    }
+    if (pixels > (std::uint64_t(1) << 32) / 4 / framebuffer.m_samples) {
         throw std::out_of_range("framebuffer size overflow");
     }
-    const std::uint64_t addresses[3] = {
-        framebuffer.m_color_address, framebuffer.m_depth_address, framebuffer.m_stencil_address};
-    const std::uint64_t sizes[3] = {pixels * 4,
-        framebuffer.m_has_depth ? pixels * 4 : 0,
-        framebuffer.m_has_stencil ? pixels : 0};
-    for (unsigned i = 0; i < 3; ++i) {
+    const auto samples = pixels * framebuffer.m_samples;
+    const std::uint64_t addresses[4] = {framebuffer.m_color_address,
+        framebuffer.m_depth_address,
+        framebuffer.m_stencil_address,
+        framebuffer.m_color1_address};
+    const std::uint64_t sizes[4] = {samples * 4,
+        framebuffer.m_has_depth ? samples * 4 : 0,
+        framebuffer.m_has_stencil ? samples : 0,
+        framebuffer.m_has_color1 ? samples * 4 : 0};
+    for (unsigned i = 0; i < 4; ++i) {
         if (sizes[i] == 0) {
             continue;
         }
@@ -46,7 +53,7 @@ void Rop::validate(const FramebufferDesc& framebuffer) const {
         if (end > (std::uint64_t(1) << 32)) {
             throw std::out_of_range("framebuffer address overflow");
         }
-        m_memory.validate(std::uint32_t(addresses[i]), i < 2 ? 4 : 1);
+        m_memory.validate(std::uint32_t(addresses[i]), i == 2 ? 1 : 4);
         m_memory.validate(std::uint32_t(end - 1), 1);
         for (unsigned j = 0; j < i; ++j) {
             if (sizes[j] && addresses[i] < addresses[j] + sizes[j] && addresses[j] < end) {
@@ -63,11 +70,14 @@ void Rop::clear(
     if (!std::isfinite(depth) || depth < 0 || depth > 1) {
         throw std::invalid_argument("clear depth outside zero to one");
     }
-    const auto packed = m_crop.pack(color);
+    const auto packed = m_crop.pack(color, framebuffer.m_srgb);
     const auto bits = depth_bits(depth);
     const std::uint64_t pixels = std::uint64_t(framebuffer.m_width) * framebuffer.m_height;
-    for (std::uint64_t i = 0; i < pixels; ++i) {
+    for (std::uint64_t i = 0; i < pixels * framebuffer.m_samples; ++i) {
         m_memory.write(std::uint32_t(framebuffer.m_color_address + i * 4), 4, packed);
+        if (framebuffer.m_has_color1) {
+            m_memory.write(std::uint32_t(framebuffer.m_color1_address + i * 4), 4, packed);
+        }
         if (framebuffer.m_has_depth) {
             m_memory.write(std::uint32_t(framebuffer.m_depth_address + i * 4), 4, bits);
         }
@@ -102,7 +112,8 @@ bool Rop::Target::write(const RopState& state, const Fragment& fragment) const {
 // 在已验证附件上检查片元和状态，并按模板、深度、颜色顺序写入。
 bool Rop::write_validated(
     const FramebufferDesc& framebuffer, const RopState& state, const Fragment& fragment) {
-    if (fragment.m_x >= framebuffer.m_width || fragment.m_y >= framebuffer.m_height) {
+    if (fragment.m_x >= framebuffer.m_width || fragment.m_y >= framebuffer.m_height ||
+        fragment.m_sample >= framebuffer.m_samples) {
         return false;
     }
     if (!std::isfinite(fragment.m_depth) || fragment.m_depth < 0 || fragment.m_depth > 1) {
@@ -115,8 +126,13 @@ bool Rop::write_validated(
     if ((ds.m_depth_test || ds.m_depth_write) && !framebuffer.m_has_depth) {
         throw std::invalid_argument("depth state requires attachment");
     }
-    const std::uint64_t pixel = std::uint64_t(fragment.m_y) * framebuffer.m_width + fragment.m_x;
-    const auto color_address = std::uint32_t(framebuffer.m_color_address + pixel * 4);
+    const std::uint64_t pixel =
+        (std::uint64_t(fragment.m_y) * framebuffer.m_width + fragment.m_x) * framebuffer.m_samples +
+        fragment.m_sample;
+    const std::array<std::uint32_t, 2> color_address{
+        std::uint32_t(framebuffer.m_color_address + pixel * 4),
+        std::uint32_t(framebuffer.m_color1_address + pixel * 4)};
+    const unsigned targets = framebuffer.m_has_color1 ? 2 : 1;
     const auto depth_address = std::uint32_t(framebuffer.m_depth_address + pixel * 4);
     const auto stencil_address = std::uint32_t(framebuffer.m_stencil_address + pixel);
     const auto old_stencil =
@@ -136,11 +152,18 @@ bool Rop::write_validated(
             ? m_zrop.stencil(
                   stencil_op, old_stencil, ds.m_stencil_reference, ds.m_stencil_write_mask)
             : old_stencil;
-    std::uint32_t color = 0;
+    std::array<std::uint32_t, 2> colors{};
     if (pass && state.m_color_write) {
-        color = m_crop.pack(state.m_blend ? m_crop.blend(fragment.m_color,
-                                                m_crop.unpack(m_memory.read(color_address, 4)))
-                                          : fragment.m_color);
+        for (unsigned i = 0; i < targets; ++i) {
+            const auto& source = i == 0 ? fragment.m_color : fragment.m_color1;
+            const auto linear =
+                state.m_blend
+                    ? m_crop.blend(source,
+                          m_crop.unpack(m_memory.read(color_address[i], 4), framebuffer.m_srgb),
+                          state.m_factors)
+                    : source;
+            colors[i] = m_crop.pack(linear, framebuffer.m_srgb);
+        }
     }
     if (ds.m_stencil_test) {
         m_memory.write(stencil_address, 1, new_stencil);
@@ -152,7 +175,9 @@ bool Rop::write_validated(
         m_memory.write(depth_address, 4, depth_bits(fragment.m_depth));
     }
     if (state.m_color_write) {
-        m_memory.write(color_address, 4, color);
+        for (unsigned i = 0; i < targets; ++i) {
+            m_memory.write(color_address[i], 4, colors[i]);
+        }
     }
     return true;
 }

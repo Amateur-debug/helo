@@ -7,9 +7,12 @@ Geom::Geom(const Mem& memory) : m_vfetch(memory) {
 }
 
 // 通过持有的获取单元装载顶点记录。
-std::vector<Vertex> Geom::fetch(
-    std::uint32_t address, std::uint32_t count, std::uint32_t stride) const {
-    return m_vfetch.fetch(address, count, stride);
+std::vector<Vertex> Geom::fetch(std::uint32_t address,
+    std::uint32_t count,
+    std::uint32_t stride,
+    std::uint32_t layout_address,
+    unsigned varying_count) const {
+    return m_vfetch.fetch(address, count, stride, layout_address, varying_count);
 }
 
 // 通过持有的获取单元装载索引记录。

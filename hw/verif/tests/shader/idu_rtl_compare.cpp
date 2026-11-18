@@ -58,6 +58,9 @@ void compare_word(Vhelo_idu& top, const helo::func::Idu& reference, std::uint64_
     helo::func::Instr expected;
     try {
         expected = reference.decode(word);
+        // RTL译码器实现基础ISA；软件纹理与工作组扩展仍须报告非法。
+        const auto opcode = word & 255U;
+        expected_legal = opcode != 0x0d && opcode != 0x0e;
     } catch (const std::exception&) {
         expected_legal = false;
     }
@@ -164,6 +167,11 @@ void run_test() {
                 }
             }
         }
+    }
+    // 使用功能模型可执行的两个扩展字，显式检查RTL对各族的拒绝。
+    for (const std::uint64_t word : {0x000005040302010dULL, 0x000004000000000eULL}) {
+        (void)reference.decode(word);
+        compare_word(top, reference, word);
     }
     for (unsigned trial = 0; trial < 32768; ++trial) {
         const std::uint64_t word = (std::uint64_t(next_random(seed)) << 32) | next_random(seed);

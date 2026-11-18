@@ -1,4 +1,5 @@
 #pragma once
+#include "fixed.h"
 #include "interp.h"
 #include "setup.h"
 #include <vector>
@@ -16,14 +17,25 @@ public:
     private:
         friend class Rast;
         std::optional<TriangleSetup> m_setup; // 保存不可由调用者改写的三角形设置。
+        std::optional<std::array<FixedVertex, 3>> m_fixed; // 保存可选的定点插值输入。
+        unsigned m_samples = 1; // 保存像素内样本总数。
+        unsigned m_sample = 0; // 保存下一候选样本编号。
         int m_x = 0; // 指向下一候选像素列。
         int m_y = 0; // 指向下一候选像素行。
     };
 
-    Cursor begin(const ScreenTriangle& triangle, std::uint32_t width, std::uint32_t height) const;
+    static std::array<float, 2> sample_offset(unsigned samples, unsigned sample);
+    Cursor begin(const ScreenTriangle& triangle,
+        std::uint32_t width,
+        std::uint32_t height,
+        unsigned samples = 1,
+        const Scissor& scissor = {},
+        RasterPrecision precision = RasterPrecision::FLOAT) const;
     bool next(Cursor& cursor, std::vector<Fragment>& fragments, std::size_t capacity) const;
-    std::vector<Fragment> rasterize(
-        const ScreenTriangle& triangle, std::uint32_t width, std::uint32_t height) const;
+    std::vector<Fragment> rasterize(const ScreenTriangle& triangle,
+        std::uint32_t width,
+        std::uint32_t height,
+        RasterPrecision precision = RasterPrecision::FLOAT) const;
 
 private:
     Setup m_setup; // 持有三角形设置与覆盖判定单元。

@@ -58,8 +58,9 @@ public:
     }
 
     // 从真实颜色附件读取紧密RGBA8数据。
-    std::vector<std::uint8_t> read_color(const helo::FramebufferDesc& framebuffer) const override {
-        return m_gpu.read_color(framebuffer);
+    std::vector<std::uint8_t> read_color(
+        const helo::FramebufferDesc& framebuffer, unsigned attachment) const override {
+        return m_gpu.read_color(framebuffer, attachment);
     }
 
 private:

@@ -1,4 +1,5 @@
 #include "fpu.h"
+#include <algorithm>
 #include <softfloat.h>
 #include <stdexcept>
 
@@ -201,7 +202,8 @@ ExecutionResult Fpu::execute(const IssuedInstr& instruction) const {
         case Operation::CSRRC: {
             const auto csr = d.m_immediate;
             const bool writing = d.m_operation == Operation::CSRRW || d.m_rs1 != 0;
-            if (csr > 2 && (csr < 0x10 || csr > 0x16)) {
+            if (csr > 2 &&
+                (csr < 0x10 || csr > (instruction.m_range.m_group_size ? 0x19u : 0x16u))) {
                 throw std::runtime_error("illegal state access: undefined CSR");
             }
             if (csr > 2 && writing) {
@@ -213,10 +215,12 @@ ExecutionResult Fpu::execute(const IssuedInstr& instruction) const {
                     value = static_cast<std::uint32_t>(thread);
                     break;
                 case 0x11:
-                    value = static_cast<std::uint32_t>(path.m_warp);
+                    value =
+                        instruction.m_range.warp_base() + static_cast<std::uint32_t>(path.m_warp);
                     break;
                 case 0x12:
-                    value = static_cast<std::uint32_t>(path.m_warp * WARP_SIZE + thread);
+                    value = instruction.m_range.m_thread_base +
+                            static_cast<std::uint32_t>(path.m_warp * WARP_SIZE + thread);
                     break;
                 case 0x13:
                     value = instruction.m_thread_count;
@@ -229,6 +233,16 @@ ExecutionResult Fpu::execute(const IssuedInstr& instruction) const {
                     break;
                 case 0x16:
                     value = 1;
+                    break;
+                case 0x17:
+                    value = instruction.m_range.m_thread_base / instruction.m_range.m_group_size;
+                    break;
+                case 0x18:
+                    value = static_cast<std::uint32_t>(path.m_warp * WARP_SIZE + thread);
+                    break;
+                case 0x19:
+                    value = std::min(instruction.m_range.m_group_size,
+                        instruction.m_thread_count - instruction.m_range.m_thread_base);
                     break;
                 }
                 break;

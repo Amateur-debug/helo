@@ -1,6 +1,8 @@
 #include "rast/rast.h"
 #include "rop/rop.h"
+#include "shader/shader.h"
 #include "tests/common/graphics_checks.h"
+#include "tests/shader/shader_test.h"
 #include "tex/tex.h"
 #include <iostream>
 #include <limits>
@@ -45,6 +47,41 @@ static void check_raster_cursor() {
             "one cursor changed another cursor");
         graphics_reject(
             [&] { raster.next(independent, batch, 0); }, "zero batch capacity accepted");
+    }
+}
+
+// 直接启动32位任务的最后一个组，验证全局编号和被拒绝的启动不会破坏该组。
+static void check_compute_tail_launch() {
+    constexpr std::uint32_t TOTAL = 0xffffffffu;
+    constexpr std::uint32_t GROUP = 37;
+    constexpr std::uint32_t TAIL = TOTAL % GROUP;
+    constexpr std::uint32_t BASE = TOTAL - TAIL;
+    func::Mem memory(128);
+    memory.load_instructions(0,
+        {imm(12, 1, 8, 0, 0x12),
+            imm(12, 2, 8, 0, 0x11),
+            imm(12, 3, 8, 0, 0x13),
+            imm(12, 4, 8, 0, 0x17),
+            imm(12, 5, 8, 0, 0x19),
+            EXIT});
+    ShaderConfig config;
+    config.m_max_warps = 2;
+    func::Shader shader(memory, config);
+    shader.launch(0, TAIL, 0, 6, {BASE, TOTAL, GROUP, 0});
+    require(shader.step(), "tail launch did not begin");
+    graphics_reject([&] { shader.launch(0, 1, 0, 6, {0, 1, 65, 0}); },
+        "direct launch accepted an oversized group for a small tail");
+    graphics_reject([&] { shader.launch(0, 0, 0, 6, {0, TOTAL, 0, 0}); },
+        "direct launch accepted an empty batch for a nonempty task");
+    require(shader.run().completed(), "rejected launch destroyed pending tail");
+    for (unsigned lane = 0; lane < TAIL; ++lane) {
+        const auto& registers = shader.registers();
+        require(registers.read_gpr(0, lane, 1) == BASE + lane &&
+                    registers.read_gpr(0, lane, 2) == (BASE / GROUP) * 2 &&
+                    registers.read_gpr(0, lane, 3) == TOTAL &&
+                    registers.read_gpr(0, lane, 4) == BASE / GROUP &&
+                    registers.read_gpr(0, lane, 5) == TAIL,
+            "uint32 maximum dispatch lost tail CSR state");
     }
 }
 
@@ -102,6 +139,7 @@ static void check_target_handle() {
 int main() {
     try {
         helo::verif::check_raster_cursor();
+        helo::verif::check_compute_tail_launch();
         helo::verif::check_texture_handle();
         helo::verif::check_target_handle();
         std::cout << "PASS func resources\n";

@@ -21,6 +21,9 @@ Vertex interpolate(const Vertex& a, const Vertex& b, double t) {
     for (unsigned i = 0; i < 2; ++i) {
         result.m_uv[i] = static_cast<float>((1 - t) * a.m_uv[i] + t * b.m_uv[i]);
     }
+    for (unsigned i = 0; i < result.m_varyings.size(); ++i) {
+        result.m_varyings[i] = float((1 - t) * a.m_varyings[i] + t * b.m_varyings[i]);
+    }
     return result;
 }
 }
@@ -36,6 +39,11 @@ std::vector<Triangle> Clip::clip(const Triangle& triangle) const {
         for (const auto value : vertex.m_color) {
             if (!std::isfinite(value)) {
                 throw std::invalid_argument("non-finite vertex color");
+            }
+        }
+        for (const auto value : vertex.m_varyings) {
+            if (!std::isfinite(value)) {
+                throw std::invalid_argument("non-finite vertex varying");
             }
         }
         for (const auto value : vertex.m_uv) {

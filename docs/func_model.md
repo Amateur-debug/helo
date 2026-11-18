@@ -29,7 +29,7 @@ Shader 的执行模型、单元职责、指令流程及缓存接口见 [Shader �
 | [geom](geom.md) | `vfetch`、`pa`、`clip`、`vp`、`geom` | 顶点/索引获取、三角形装配、齐次裁剪、视口和剔除 |
 | [rast](rast.md) | `setup`、`interp`、`rast` | 三角形设置、像素覆盖、透视属性插值 |
 | [shader](shader.md) | `shader`及各执行/调度单元 | HELO SIMT32机器码执行；细分职责见Shader文档 |
-| [tex](tex.md) | `tex` | RGBA8纹理寻址和最近点/双线性过滤 |
+| [tex](tex.md) | `tex` | RGBA8 纹理寻址、最近点/双线性过滤、显式 LOD 与 Shader 绑定表 |
 | [rop](rop.md) | `zrop`、`crop`、`rop` | 深度/模板、量化/混合及附件写回 |
 | [mem](mem.md) | `mem`、`icache`、`dcache` | 统一小端字节存储及取指/数据直通访问 |
 

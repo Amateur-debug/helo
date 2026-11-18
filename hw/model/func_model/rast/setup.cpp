@@ -19,8 +19,10 @@ bool Setup::top_left(const ScreenVertex& a, const ScreenVertex& b) const {
 }
 
 // 丢弃退化或不可见三角形，并将像素中心包围盒限制在目标内。
-std::optional<TriangleSetup> Setup::prepare(
-    const ScreenTriangle& triangle, std::uint32_t width, std::uint32_t height) const {
+std::optional<TriangleSetup> Setup::prepare(const ScreenTriangle& triangle,
+    std::uint32_t width,
+    std::uint32_t height,
+    unsigned samples) const {
     if (width == 0 || height == 0) {
         return std::nullopt;
     }
@@ -61,13 +63,16 @@ std::optional<TriangleSetup> Setup::prepare(
     const double max_y = std::max({double(triangle[0].m_position[1]),
         double(triangle[1].m_position[1]),
         double(triangle[2].m_position[1])});
-    if (max_x < 0.5 || max_y < 0.5 || min_x > double(width) - 0.5 || min_y > double(height) - 0.5) {
+    const double near = samples == 4 ? 0.25 : 0.5;
+    const double far = 1 - near;
+    if (max_x < near || max_y < near || min_x > double(width) - near ||
+        min_y > double(height) - near) {
         return std::nullopt;
     }
-    setup.m_min_x = int(std::max(0.0, std::ceil(min_x - 0.5)));
-    setup.m_max_x = int(std::min(double(width) - 1, std::floor(max_x - 0.5)));
-    setup.m_min_y = int(std::max(0.0, std::ceil(min_y - 0.5)));
-    setup.m_max_y = int(std::min(double(height) - 1, std::floor(max_y - 0.5)));
+    setup.m_min_x = int(std::max(0.0, std::ceil(min_x - far)));
+    setup.m_max_x = int(std::min(double(width) - 1, std::floor(max_x - near)));
+    setup.m_min_y = int(std::max(0.0, std::ceil(min_y - far)));
+    setup.m_max_y = int(std::min(double(height) - 1, std::floor(max_y - near)));
     return setup;
 }
 }

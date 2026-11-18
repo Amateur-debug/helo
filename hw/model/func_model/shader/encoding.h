@@ -15,6 +15,8 @@
 #define HELO_OPCODE_JUMP_REG 0x0au
 #define HELO_OPCODE_UPPER 0x0bu
 #define HELO_OPCODE_SYSTEM 0x0cu
+#define HELO_OPCODE_WORKGROUP 0x0eu
+#define HELO_OPCODE_TEX 0x0du
 #define HELO_OPCODE(encoding) (static_cast<unsigned>((encoding) & 0xffu))
 
 namespace helo::func::encoding {
@@ -55,9 +57,11 @@ inline Format classify(std::uint64_t encoding) {
     switch (HELO_OPCODE(encoding)) {
     case HELO_OPCODE_OP:
     case HELO_OPCODE_MULDIV:
+    case HELO_OPCODE_WORKGROUP:
     case HELO_OPCODE_FP:
         return Format::R;
     case HELO_OPCODE_FMA:
+    case HELO_OPCODE_TEX:
         return Format::R4;
     case HELO_OPCODE_OP_IMM:
     case HELO_OPCODE_LOAD:

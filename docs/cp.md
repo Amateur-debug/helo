@@ -71,7 +71,8 @@ Framebuffer语义见[ROP](rop.md)。ShaderProgram预算是每批指令组数，�
 | 11–14 | float color.r/g/b/a |
 | 15 | float depth |
 | 16 | stencil，范围0–255 |
-| 17–63 | 零填充 |
+| 17–18 | 附件扩展标志和第二颜色附件地址，同 RENDER 字 59–60 |
+| 19–63 | 零填充 |
 
 CP解码后调用Rop.clear，清除全部已配置附件，不使用RENDER的写入掩码。
 
@@ -84,10 +85,17 @@ CP解码后调用Rop.clear，清除全部已配置附件，不使用RENDER的写
 | 6 | param_base |
 | 7 | register_count |
 | 8 | step_budget |
-| 9–63 | 零填充 |
+| 9 | group_size；0 表示按核心容量分批，正数声明一维工作组大小 |
+| 10 | shared_bytes；每组共享存储字节数，4 字节对齐，最多 65536 |
+| 11–63 | 零填充 |
 
-CP调用Shader.launch/run；线程数须满足同时驻留资源限制，不自动分批。
-所有字段在线协议中均为32位；step_budget=0拒绝。
+所有字段为32位。CP按全局编号递增顺序启动批次，所有批次合计受同一个正数
+step_budget限制。group_size为零时取当前寄存器声明下的驻留线程容量为批次
+上限，shared_bytes须为零。group_size为正时每次执行一个组，声明值须能
+完整驻留，最后一组可不足声明大小。每组从零初始化独立共享存储。成功的
+全局写入和原子加立即可见，组之间不能使用屏障或依赖并发驻留。线程总数为
+零时仍检查启动和资源字段，合法包消耗零条指令。编号和指令见
+[工作组扩展](isa.md#计算工作组扩展)。
 
 ### RENDER负载
 
@@ -106,7 +114,19 @@ CP调用Shader.launch/run；线程数须满足同时驻留资源限制，不自�
 | 48 | texture_enabled |
 | 49–51 | texture.address/width/height |
 | 52–54 | texture.filter/wrap_u/wrap_v |
-| 55–63 | 零填充 |
+| 55–56 | Shader 纹理绑定表地址、槽数。每槽七字，详见 [Tex 设计](tex.md) |
+| 57–58 | 顶点布局表地址、自定义分量数 |
+| 59–60 | 附件标志、第二颜色附件地址 |
+| 61 | 可选光栅状态表地址，零使用默认值 |
+| 62 | 数值配置，0 为浮点，1 为 Q4_Q16_V1 |
+| 63 | 零填充 |
+
+附件标志从低到高为四样本、启用第二颜色目标、颜色使用 sRGB 编码，位 3–31 须为零。关闭第二目标时其地址须为零。CLEAR 和 RENDER 必须分别提供对应附件布局。
+
+光栅状态表由九个小端 uint32 组成，依次为 scissor_enable、x、y、width、height、src_rgb、dst_rgb、src_alpha、dst_alpha。矩形以左上为原点，右、下边界排除。enable 取 0 或 1，blend 因子取 0–9，编号依次对应 ZERO、ONE、SRC_ALPHA、INV_SRC_ALPHA、DST_ALPHA、INV_DST_ALPHA、SRC_COLOR、INV_SRC_COLOR、DST_COLOR、INV_DST_COLOR。表内混合因子仅在字 36 开启混合时生效。
+
+
+字 57 是顶点布局表的起始字节地址（零使用默认布局），字 58 是自定义 FP32 分量数（0–16）。表内偏移相对于每条顶点记录。详细格式、缺省值及属性范围校验见[顶点布局](geom.md#资源布局裁剪与视口)。
 
 cull_mode：0=NONE、1=FRONT、2=BACK；compare：0=NEVER、1=LESS、2=EQUAL、
 3=LESS_EQUAL、4=GREATER、5=NOT_EQUAL、6=GREATER_EQUAL、7=ALWAYS。
@@ -175,7 +195,7 @@ CP先无分配地验证装配索引，再对完整顶点流分批执行VS，取�
 绘制开始时取得已验证纹理/附件描述符，纹理及附件内容仍实时访问。
 每批先准备所有纹理输入，再执行整个Shader任务，结束后按lane顺序处理
 discard和ROP。FS若出错，本批不会向ROP提交，但FS此前成功的全局存储
-仍保留。execute_compute只启动一个任务，不做上述图形分批。
+仍保留。execute_compute按计算包的工作组与预算约定顺序启动各批。
 
 ### 游标推进的例子
 

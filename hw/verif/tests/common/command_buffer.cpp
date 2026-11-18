@@ -37,6 +37,15 @@ public:
         word(f.m_has_stencil);
     }
 
+    // 以向后兼容的标志字和独立地址编码附件扩展。
+    void framebuffer_extension(const helo::FramebufferDesc& f) {
+        if (f.m_samples != 1 && f.m_samples != 4) {
+            throw std::invalid_argument("unsupported sample count");
+        }
+        word((f.m_samples == 4 ? 1U : 0U) | (f.m_has_color1 ? 2U : 0U) | (f.m_srgb ? 4U : 0U));
+        word(f.m_color1_address);
+    }
+
     // 按固定五字布局编码程序描述。
     void program(const helo::ShaderProgram& p) {
         word(p.m_enabled);
@@ -55,6 +64,7 @@ public:
         }
         real(c.m_depth);
         word(c.m_stencil);
+        framebuffer_extension(c.m_framebuffer);
     }
 
     // 编码计算程序启动操作。
@@ -65,6 +75,8 @@ public:
         word(c.m_param_base);
         word(c.m_register_count);
         word(c.m_step_budget);
+        word(c.m_group_size);
+        word(c.m_shared_bytes);
     }
 
     // 编码渲染状态快照，字段位置独立对应线协议表。
@@ -109,6 +121,13 @@ public:
         word(static_cast<unsigned>(c.m_texture.m_filter));
         word(static_cast<unsigned>(c.m_texture.m_wrap_u));
         word(static_cast<unsigned>(c.m_texture.m_wrap_v));
+        word(c.m_texture_table_address);
+        word(c.m_texture_binding_count);
+        word(c.m_vertex_layout_address);
+        word(c.m_varying_count);
+        framebuffer_extension(c.m_framebuffer);
+        word(c.m_raster_state_address);
+        word(static_cast<unsigned>(c.m_precision));
     }
 };
 }
