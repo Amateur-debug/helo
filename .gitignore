@@ -16,6 +16,7 @@
 
 # 文档。
 !/docs/**/*.md
+!/docs/images/gpu-scene.png
 
 # 硬件、模型、验证和驱动源码。
 !/hw/**/AGENTS.md
