@@ -7,6 +7,7 @@
 ```text
 .
 ├── AGENTS.md
+├── build/              # 按构建名称和时间戳分批保存的构建产物
 ├── worklog/            # AI 工作记录（Markdown）
 ├── logs/               # 测试运行日志
 ├── docs/
@@ -28,11 +29,14 @@
 
 ## 设计文档
 
-修改相关模块前，阅读对应文档：
+完整目录见 [文档导航](docs/README.md)。修改相关模块前，阅读对应文档：
 
 - [功能模型结构](docs/func_model.md)：模块划分与源码组织。
 - [Shader 架构](docs/shader.md)：执行模型、单元职责、指令流程与存储接口。
-- [验证结构](docs/verification.md)：统一 DUT、共用测试及测试文件命名。
+- [GPU 顶层架构](docs/gpu.md)：完整GPU组成、模块连接、数据流及生命周期。
+- 模块设计：[CP](docs/cp.md)、[Geom](docs/geom.md)、[Rast](docs/rast.md)、[Tex](docs/tex.md)、[ROP](docs/rop.md)、[Mem](docs/mem.md)、[Common](docs/common.md)。
+- [图形 Shader ABI](docs/shader.md#图形调用寄存器abi)：顶点/片元寄存器输入输出与分批调用协议。
+- [验证规范](docs/verification.md)：统一 DUT、共用测试、CMake/CTest 运行要求、构建目录及测试文件命名。
 
 架构与接口约定维护在 `docs/` 对应文档中；设计变更同步更新文档，`AGENTS.md` 仅保留导航与工作规则。
 

@@ -13,7 +13,6 @@
 !/.clang-tidy
 !/CMakeLists.txt
 !/CMakePresets.json
-!/Makefile
 
 # 文档。
 !/docs/**/*.md
@@ -30,6 +29,8 @@
 !/hw/**/*.v
 !/hw/**/*.vh
 !/hw/**/*.f
+!/hw/**/*.s
+!/hw/**/*.S
 !/sw/**/AGENTS.md
 !/sw/**/*.h
 !/sw/**/*.hpp
@@ -39,15 +40,18 @@
 !/sw/**/*.s
 !/sw/**/*.S
 
-# 模块构建文件。
+# CMake 模块构建文件。
+!/cmake/**/*.cmake
 !/hw/**/CMakeLists.txt
 !/hw/**/*.cmake
-!/hw/**/Makefile
-!/hw/**/*.mk
 !/sw/**/CMakeLists.txt
 !/sw/**/*.cmake
-!/sw/**/Makefile
-!/sw/**/*.mk
+
+# 开发脚本与持续集成配置。
+!/scripts/**/*.py
+!/scripts/**/*.sh
+!/.github/workflows/*.yml
+!/.github/workflows/*.yaml
 
 # 第三方子模块由父仓库记录固定提交。
 !/third_party/spike/
@@ -55,7 +59,12 @@
 # 即使扩展名匹配白名单，生成目录与本地配置仍不纳入版本管理。
 **/build/
 **/cmake-build-*/
+**/build-*/
 **/CMakeFiles/
+**/cmake_install.cmake
+**/CTestTestfile.cmake
+**/CPackConfig.cmake
+**/CPackSourceConfig.cmake
 **/obj_dir/
 **/.vscode/
 **/.idea/
